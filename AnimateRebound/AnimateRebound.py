@@ -33,6 +33,42 @@ def create_emission_shader(color, strength, mat_name):
     return mat
 
 
+def setup_scene(END_FRAME):
+    # set a black background
+    bpy.data.worlds["World"].node_tree.nodes["Background"].inputs[0].default_value = (0, 0, 0, 1)
+    
+    # (make sure we use the EEVEE render engine + enable bloom effect)
+    scene = bpy.context.scene
+    scene.render.engine = "BLENDER_EEVEE"
+    scene.eevee.use_bloom = True
+    
+    # (set the animation start/end/current frames)
+    scene.frame_start = 1
+    scene.frame_end = END_FRAME
+    scene.frame_current = 1
+    # get the current 3D view (among all visible windows
+    # in the workspace)
+    area = None
+    for a in bpy.data.window_managers[0].windows[0].screen.areas:
+        if a.type == "VIEW_3D":
+            area = a
+            break
+    space = area.spaces[0] if area else bpy.context.space_data
+    # apply a "rendered" shading mode + hide all
+    # additional markers, grids, cursors...
+    space.shading.type = 'RENDERED'
+    
+    bpy.ops.object.camera_add(
+        enter_editmode=False, 
+        align='VIEW', 
+        location=(0, 0, 0), 
+        rotation=(0.801518, 0.0107709, 2.23358), 
+        scale=(1, 1, 1),
+    )
+    bpy.ops.view3d.camera_to_view()
+
+
+
 class rebData:
     def __init__(self):
         self.data = None
@@ -57,15 +93,16 @@ class rebSelect(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
         scene = context.scene
         anim = scene.reb_anim
         
-        scene.eevee.use_bloom = True
-        
         data = np.load(fdir)
         pos0 = data['0']
         
         scene.reb_data.data = data
         scene.reb_data.reb_particles = pos0.shape[1]
 
-        #set scene        
+        #set scene
+        setup_scene(anim.frame_rate*len(data))
+        
+        #add objects and animate
         for pi in range(pos0.shape[1]):
             bpy.ops.mesh.primitive_uv_sphere_add(
                 radius=1,
