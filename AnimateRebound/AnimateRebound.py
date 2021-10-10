@@ -1,7 +1,20 @@
 import bpy
 import bpy_extras
 import numpy as np
+import time
 
+
+'''
+
+REFACTOR PLAN:
+    load data with button, then set settings, have operators for building the scene step by step
+    add sun
+    add planets
+    add test particles
+    modal opeartors with calls to adding one particles, allows progressbars
+    
+
+'''
 def create_emission_shader(color, strength, mat_name):
     '''From: https://demando.se/blogg/post/dev-generating-a-procedural-solar-system-with-blenders-python-api/
     '''
@@ -93,6 +106,8 @@ class rebSelect(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
         scene = context.scene
         anim = scene.reb_anim
         
+        #bpy.ops.reb.progress('INVOKE_DEFAULT')
+        
         data = np.load(fdir)
         pos0 = data['0']
         
@@ -101,6 +116,9 @@ class rebSelect(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
 
         #set scene
         setup_scene(anim.frame_rate*len(data))
+        
+        steps_total = pos0.shape[1]*len(data)
+        steps = 0
         
         #add objects and animate
         for pi in range(pos0.shape[1]):
@@ -112,11 +130,18 @@ class rebSelect(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
             bpy.ops.object.shade_smooth()
             obj.name = f'particle-{pi}'
             obj.keyframe_insert(data_path = 'location', frame=1)
+            
+            scene.reb_progress_label = f'Adding keyframes object-{pi}'
+            time.sleep(3)
         
             for step in range(1, len(data)):
                 pos = data[f'{step}']
                 obj.location = pos[:,pi]
                 obj.keyframe_insert(data_path = 'location', frame=(step+1)*anim.frame_rate)
+                
+                steps += 1
+                scene.reb_progress = 100*steps/steps_total
+                context.area.tag_redraw()
 
             if pi == anim.star_index:
                 obj.scale = [anim.star_radius]*3
@@ -136,6 +161,7 @@ class rebSelect(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
                         f'particleMat-{pi}',
                     )
                 )
+        scene.reb_progress_label = 'Done'
 
         return{'FINISHED'}
 
@@ -153,6 +179,36 @@ class rebClear(bpy.types.Operator):
         
         return {'FINISHED'}
 
+'''
+class rebProgress(bpy.types.Operator):
+    bl_idname = "reb.progress"
+    bl_label = "Progress-bar"
+
+    def execute(self, context):
+        context.object.location.x = self.value / 100.0
+        return {'FINISHED'}
+
+    def modal(self, context, event):
+        if event.type == 'MOUSEMOVE':
+            self.value = event.mouse_x
+            
+            
+            self.execute(context)
+            
+            
+            return {'FINISHED'}
+            return {'CANCELLED'}
+
+        return {'RUNNING_MODAL'}
+
+    def invoke(self, context, event):
+        self.init_loc_x = context.object.location.x
+        self.value = event.mouse_x
+        self.execute(context)
+
+        context.window_manager.modal_handler_add(self)
+        return {'RUNNING_MODAL'}
+'''
 
 class rebPanel(bpy.types.Panel):
     """Creates a Panel in the 3d view to configure the Rebound animation"""
@@ -173,6 +229,12 @@ class rebPanel(bpy.types.Panel):
         layout.prop(anim, 'star_radius')
         layout.prop(anim, 'particle_radius')
         layout.prop(anim, 'frame_rate')
+        
+        progress_bar = layout.row()
+        progress_bar.prop(scene,"reb_progress")
+        progress_lbl = layout.row()
+        progress_lbl.active = False
+        progress_lbl.label(text=scene.reb_progress_label)
 
         layout.label(text="REBOUND data:")
         row = layout.row()
@@ -186,6 +248,7 @@ classes = [
     rebSelect,
     rebClear,
     rebPanel,
+    #rebProgress,
     rebAnimationProperties,
 ]
 
@@ -195,6 +258,14 @@ def register():
         bpy.utils.register_class(cls)
     
     bpy.types.Scene.reb_anim = bpy.props.PointerProperty(type=rebAnimationProperties)
+    bpy.types.Scene.reb_progress = bpy.props.FloatProperty(
+        name="Progress", 
+        subtype="PERCENTAGE",
+        soft_min=0, 
+        soft_max=100, 
+        precision=0,
+    )
+    bpy.types.Scene.reb_progress_label = bpy.props.StringProperty()
     bpy.types.Scene.reb_data = rebData()
 
 

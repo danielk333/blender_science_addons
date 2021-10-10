@@ -12,9 +12,9 @@ def convert_archive(path):
         for pi, p in enumerate(sim.particles):
             pos[:,pi] = p.xyz
         positions[f'{si}'] = pos
-
-    np.savez('archive.npz', **positions)
-    print('Saved to archive.npz')
+    fout = '.'.join(path.split('.')[:-1] + ['npz'])
+    np.savez(fout, **positions)
+    print(f'Saved to {fout}')
 
 if __name__=='__main__':
     import sys
