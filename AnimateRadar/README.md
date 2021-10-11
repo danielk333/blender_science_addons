@@ -4,4 +4,4 @@
 
 The code here now produces an image like this:
 
-![](blender_test_earth.png)
+![](blender_test_earth.gif)
