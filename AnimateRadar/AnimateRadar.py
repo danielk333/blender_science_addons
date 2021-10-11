@@ -4,6 +4,7 @@ import mathutils
 import numpy as np
 import pathlib
 import os
+import pickle
 
 '''
 https://blender.stackexchange.com/questions/3219/how-to-show-to-the-user-a-progression-in-a-script
@@ -346,6 +347,28 @@ class radClear(bpy.types.Operator):
         
         return {'FINISHED'}
 
+
+
+class radLoad(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
+    bl_idname = "radar.load"
+    bl_label = "Load radar schedule"
+    bl_description = 'Load radar schedule and add beams'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        fdir = self.properties.filepath
+        scene = context.scene
+        
+        with open(fdir, 'rb') as h:
+            datas = pickle.load(h)
+        scene.rad_data.datas = datas
+
+        
+
+        return{'FINISHED'}
+
+
+
 class radarPanel(bpy.types.Panel):
     bl_label = 'Radar Tools'
     bl_idname = 'VIEW_3D_PT_radarPanel'
@@ -392,9 +415,13 @@ class radarPanel(bpy.types.Panel):
 
         layout.label(text="Radar data:")
         row = layout.row()
-        row.scale_y = 2.0
-        sub = row.row()
-        
+        row.operator("radar.load", text='Load schedule')
+
+
+class radData:
+    def __init__(self):
+        self.datas = None
+
 
 class radSunProperties(bpy.types.PropertyGroup):
     animate: bpy.props.BoolProperty(name='Animate', default = False)
@@ -411,6 +438,7 @@ classes = [
     radSelect,
     radSetup,
     radSun,
+    radLoad,
     radSunProperties,
 ]
 
@@ -420,11 +448,14 @@ def register():
         bpy.utils.register_class(cls)
     bpy.types.Scene.rad_sun_properties = bpy.props.PointerProperty(type=radSunProperties)
     bpy.types.Scene.rad_data_folder = bpy.props.StringProperty()
+    bpy.types.Scene.rad_data = radData()
 
 def unregister():
     for cls in classes:
         bpy.utils.unregister_class(cls)
     
+    del bpy.types.Scene.rad_data
+    del bpy.types.Scene.rad_sun_properties
     del bpy.types.Scene.rad_data_folder
 
 
