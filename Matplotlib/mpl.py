@@ -19,6 +19,8 @@ class mplInstall(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
         #sys.executable
         #choose mpl install and move? or do something? open terminal?
         #maybe run pip from the site-packages?
+        #subprocess.check_call([sys.executable, "-m", "pip", "install", "matplotlib"])
+        #as sudo?????
 
         return{'FINISHED'}
 
