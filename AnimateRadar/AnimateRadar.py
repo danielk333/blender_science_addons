@@ -458,6 +458,10 @@ class radBeams(bpy.types.Operator):
                 ob_.select_set(True)
         bpy.ops.object.delete()
 
+        #
+        # ONE IDEA: USE HAIRS INSATEAD OF CYLINDERS, probably faster and can have many beams
+        # https://blender.stackexchange.com/questions/142741/how-do-i-programmatically-set-hair-position-and-shape-in-blender-2-8
+
         bpy.ops.mesh.primitive_cylinder_add(
             align='WORLD', 
             location=(0, 0, 0), 
