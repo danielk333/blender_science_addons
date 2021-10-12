@@ -348,6 +348,159 @@ class radClear(bpy.types.Operator):
         return {'FINISHED'}
 
 
+def origin_to_bottom(ob, use_verts=False):
+    '''Modified from: https://blender.stackexchange.com/a/42110
+    '''
+    me = ob.data
+    mw = ob.matrix_world
+    if use_verts:
+        data = (v.co for v in me.vertices)
+    else:
+        data = (mathutils.Vector(v) for v in ob.bound_box)
+    coords = np.array([v for v in data])
+    z = coords.T[2]
+    mins = np.take(coords, np.where(z == z.min())[0], axis=0)
+    o = mathutils.Vector(np.mean(mins, axis=0))
+    me.transform(mathutils.Matrix.Translation(-o))
+    mw.translation = mw @ o
+
+
+class radBeams(bpy.types.Operator):
+    bl_idname = "radar.beams"
+    bl_label = "Plot radar beams"
+    bl_description = "Plot radar beams"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        scene = context.scene
+        
+        assert scene.rad_data.datas is not None
+        
+        scale = 0.005
+        fps = 100
+        phase_speed = 1.8 #per frame
+        start_frame = 1
+        end_frame = 200
+        start_time = (start_frame - 1)/fps
+        end_time = (end_frame - 1)/fps
+        
+        
+        mat = bpy.data.materials.get('Beam')
+        if mat is None:
+            mat = bpy.data.materials.new('Beam')
+        
+        mat.use_nodes = True
+        nodes = mat.node_tree.nodes
+        nodes.clear()
+        
+        links = mat.node_tree.links
+
+        node_out = nodes.new(type="ShaderNodeOutputMaterial")
+        node_mix = nodes.new(type="ShaderNodeMixShader")
+        node_trans = nodes.new(type="ShaderNodeBsdfTransparent")
+        node_glow = nodes.new(type="ShaderNodeEmission")
+        node_wave = nodes.new(type="ShaderNodeTexWave")
+
+        node_glow.inputs[0].default_value = (0, 1, 0.00348982, 1)
+        node_trans.inputs[0].default_value = (1, 1, 1, 0)
+        node_wave.bands_direction = 'Z'
+        node_wave.wave_profile = 'SAW'
+        node_wave.inputs[1].default_value = 2
+        node_wave.inputs[2].default_value = 1
+        node_wave.inputs[6].default_value = 0
+        
+        links.new(node_wave.outputs[0], node_glow.inputs[1])
+        links.new(node_glow.outputs[0], node_mix.inputs[1])
+        links.new(node_trans.outputs[0], node_mix.inputs[2])
+        links.new(node_mix.outputs[0], node_out.inputs[0])
+        
+        if mat.node_tree.animation_data is not None and \
+            mat.node_tree.animation_data.action is not None:
+            frame_range = mat.node_tree.animation_data.action.frame_range
+            for frame in range(int(frame_range.x), int(frame_range.y) + 1):
+                node_wave.inputs[6].keyframe_delete(data_path='default_value', frame=frame)
+
+        
+        for frame in range(start_frame, end_frame):
+            node_wave.inputs[6].default_value -= phase_speed
+            node_wave.inputs[6].keyframe_insert(data_path='default_value', frame=frame)
+        
+        ##
+        ## DO COMPOSITING
+        ##
+        if 'bloom_setup' not in scene.node_tree.nodes:
+            print('no bloom setup, clearing scene tree and adding compositing')
+            scene.use_nodes = True
+            scene.node_tree.nodes.clear()
+
+            nd_noise = scene.node_tree.nodes.new(type="CompositorNodeDenoise")
+            nd_glare = scene.node_tree.nodes.new(type="CompositorNodeGlare")
+            nd_comp = scene.node_tree.nodes.new(type="CompositorNodeComposite")
+            nd_layers = scene.node_tree.nodes.new(type="CompositorNodeRLayers")
+
+            nd_glare.glare_type = 'FOG_GLOW'
+            scene.node_tree.links.new(nd_layers.outputs[0], nd_noise.inputs[0])
+            scene.node_tree.links.new(nd_noise.outputs[0], nd_glare.inputs[0])
+            scene.node_tree.links.new(nd_glare.outputs[0], nd_comp.inputs[0])
+            
+            nd_glare.name = 'bloom_setup'
+
+        #keyframe objects
+        #hide when not used?
+        
+        #start with first and test
+        data = scene.rad_data.datas[0]
+        
+        if context.active_object is not None:
+            context.active_object.select_set(False)
+        for ob_ in context.scene.objects:
+            if ob_.name.startswith('beam'):
+                ob_.select_set(True)
+        bpy.ops.object.delete()
+
+        bpy.ops.mesh.primitive_cylinder_add(
+            align='WORLD', 
+            location=(0, 0, 0), 
+            scale=(1, 1, 1),
+        )
+        obj = bpy.context.active_object
+        obj.name = 'beam-0'
+        origin_to_bottom(obj)
+        obj.scale = (scale, scale, 1)
+        obj.data.materials.append(mat)
+        
+        norm_c = np.linalg.norm(data['pos'])
+        pos0 = mathutils.Vector(data['pos']/norm_c)
+        
+        #this needs to be found from time and epoch and earth rotation
+        manual_az_corr = -np.pi*0.75
+        az_corr = mathutils.Matrix.Rotation(manual_az_corr, 4, 'Z')
+        pos0 = az_corr @ pos0
+        
+        obj.location = pos0
+        obj.rotation_mode = 'QUATERNION'
+        frame0 = 0
+        for t, target in zip(data['t'], data['data']):
+            if frame0 > 10:
+                break
+            
+            obj.scale[2] = np.linalg.norm(target/norm_c)*10
+            az = np.arctan2(target[1], target[0])
+            el = np.arcsin(target[2]/np.linalg.norm(target))
+            
+            rot_z = mathutils.Matrix.Rotation(az, 4, 'Z')
+            rot_y = mathutils.Matrix.Rotation(np.pi/2 - el, 4, 'Y')
+            
+            transform = rot_z @ rot_y
+
+            obj.rotation_quaternion = transform.to_quaternion()
+            obj.keyframe_insert(data_path = 'rotation_quaternion', frame=frame0*10 + 1)
+            obj.keyframe_insert(data_path = 'scale', frame=frame0*10 + 1)
+            
+            frame0 += 1
+
+        return{'FINISHED'}
+
 
 class radLoad(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
     bl_idname = "radar.load"
@@ -362,9 +515,7 @@ class radLoad(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
         with open(fdir, 'rb') as h:
             datas = pickle.load(h)
         scene.rad_data.datas = datas
-
         
-
         return{'FINISHED'}
 
 
@@ -416,6 +567,7 @@ class radarPanel(bpy.types.Panel):
         layout.label(text="Radar data:")
         row = layout.row()
         row.operator("radar.load", text='Load schedule')
+        row.operator("radar.beams", text='Plot beams')
 
 
 class radData:
@@ -439,6 +591,7 @@ classes = [
     radSetup,
     radSun,
     radLoad,
+    radBeams,
     radSunProperties,
 ]
 
@@ -448,7 +601,8 @@ def register():
         bpy.utils.register_class(cls)
     bpy.types.Scene.rad_sun_properties = bpy.props.PointerProperty(type=radSunProperties)
     bpy.types.Scene.rad_data_folder = bpy.props.StringProperty()
-    bpy.types.Scene.rad_data = radData()
+    if bpy.types.Scene.rad_data is None:
+        bpy.types.Scene.rad_data = radData()
 
 def unregister():
     for cls in classes:

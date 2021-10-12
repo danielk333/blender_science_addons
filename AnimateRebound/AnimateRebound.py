@@ -87,6 +87,66 @@ class rebData:
         self.data = None
         self.reb_particles = None
 
+def stuffs():
+    '''https://blender.stackexchange.com/a/48222
+    '''
+    import bpy
+    import bmesh
+    import mathutils
+
+    # create the materials used
+    # simple BI materials used
+    MatAu = bpy.data.materials.new('Mat.Au')
+    MatAu.diffuse_color = (0.8,0.7,0.2,1.0)
+    MatC  = bpy.data.materials.new('Mat.C')
+    MatC.diffuse_color = (0.1,0.1,0.1,1.0)
+    MatH  = bpy.data.materials.new('Mat.H')
+    MatH.diffuse_color = (0.8,0.7,0.2,1.0)
+
+    # create an empty mesh object and add it to the scene
+    sphereMesh = bpy.data.meshes.new('AllSpheres')
+    sphereObj  = bpy.data.objects.new('AllSpheres', sphereMesh)
+    bpy.context.collection.objects.link(sphereObj)
+    bpy.context.view_layer.objects.active = sphereObj
+
+    # create slots for each material then add each material to the object
+    while len(sphereObj.material_slots) < 3:
+        bpy.ops.object.material_slot_add()
+    sphereObj.material_slots[0].material = MatAu
+    sphereObj.material_slots[1].material = MatC
+    sphereObj.material_slots[2].material = MatH
+
+    # test data to be swapped for data in file
+    # type, location, scale
+    data = [('C', (1.0, 1.0, 1.0), 0.2),
+            ('H', (2.0, 2.0, 2.0), 0.4),
+            ('Au',(3.0, 3.0, 3.0), 0.8),
+            ('C', (4.0, 4.0, 4.0), 1.2),
+            ('H', (5.0, 5.0, 5.0), 0.2),
+            ('Au',(6.0, 6.0, 6.0), 0.8),
+            ('C', (7.0, 7.0, 7.0), 0.4),
+            ('H', (8.0, 8.0, 8.0), 0.8),
+            ('Au',(9.0, 9.0, 9.0), 1.2),
+    ]
+
+    bm = bmesh.new()
+    for i in data:
+        locMatrix = mathutils.Matrix.Translation(i[1])
+        scaleMatrix = mathutils.Matrix.Scale(i[2], 4)
+        mesh = bmesh.ops.create_uvsphere(bm, u_segments=8, v_segments=8,
+                        diameter=1.0, matrix=locMatrix @ scaleMatrix)
+        for v in mesh['verts']:
+            for f in v.link_faces:
+                if i[0] == 'Au':
+                    f.material_index = 0 # material_index matches material_slots[x]
+                elif i[0] == 'C':
+                    f.material_index = 1
+                elif i[0] == 'H':
+                    f.material_index = 2
+
+    bm.to_mesh(sphereMesh)
+    bm.free()
+
 
 class rebAnimationProperties(bpy.types.PropertyGroup):
     star_index: bpy.props.IntProperty(name='Star index', soft_min = 0)
